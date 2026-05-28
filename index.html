@@ -240,14 +240,13 @@ input.fi:focus,select.fi:focus,textarea.fi:focus{outline:none;border-color:var(-
 <!-- SHAREPOINT SETUP -->
 <div id="sp-setup-panel" style="display:none">
   <div class="sp-setup">
-    <div class="sp-setup-title">Connect to SharePoint</div>
-    <div class="sp-setup-sub">This will create the required Lists on your SharePoint site and sync all project data so your team can collaborate in real time.</div>
-    <div class="sp-step"><div class="sp-step-num">1</div><div class="sp-step-body"><div class="sp-step-title">Enter your SharePoint site URL</div><div class="sp-step-desc">This is the address of your SharePoint site, e.g. https://4creeks.sharepoint.com/sites/TuleGSP</div></div></div>
-    <div class="sp-step"><div class="sp-step-num">2</div><div class="sp-step-body"><div class="sp-step-title">Click Connect</div><div class="sp-step-desc">The tool will create 6 Lists automatically and upload all current data. This takes about 30-60 seconds.</div></div></div>
-    <div class="sp-step"><div class="sp-step-num">3</div><div class="sp-step-body"><div class="sp-step-title">Share the URL with your team</div><div class="sp-step-desc">Once connected, download this HTML file and share it. Anyone who opens it and connects to the same site will see live shared data.</div></div></div>
-    <div class="sp-url-row">
-      <input class="sp-url-input" id="sp-url-input" type="url" placeholder="https://yourcompany.sharepoint.com/sites/YourSite" value="">
-      <button class="sp-connect-btn" id="sp-connect-btn" onclick="connectToSharePoint()">Connect</button>
+    <div class="sp-setup-title">Connect to Supabase</div>
+    <div class="sp-setup-sub">Your Supabase database is pre-configured. Click Connect to upload all project data and enable real-time collaboration across your team.</div>
+    <div class="sp-step"><div class="sp-step-num">1</div><div class="sp-step-body"><div class="sp-step-title">Run the SQL setup</div><div class="sp-step-desc">If you haven't already, run the SQL script in your Supabase SQL Editor to create the tables.</div></div></div>
+    <div class="sp-step"><div class="sp-step-num">2</div><div class="sp-step-body"><div class="sp-step-title">Click Connect</div><div class="sp-step-desc">All project data will be uploaded to Supabase. This takes about 10-20 seconds.</div></div></div>
+    <div class="sp-step"><div class="sp-step-num">3</div><div class="sp-step-body"><div class="sp-step-title">Share with your team</div><div class="sp-step-desc">Send your team the Vercel URL. Anyone who opens it will automatically see live shared data.</div></div></div>
+    <div style="margin-top:20px">
+      <button class="sp-connect-btn" id="sp-connect-btn" onclick="connectToSupabase()">Connect to Supabase</button>
     </div>
     <div class="sp-status" id="sp-status"></div>
     <div class="sp-progress" id="sp-progress" style="display:none">
@@ -471,15 +470,42 @@ var STORAGE_KEY='tule-gsp-v4';
 var MONTH_END=[new Date(2026,4,31),new Date(2026,5,30),new Date(2026,6,31),new Date(2026,7,31),new Date(2026,8,30),new Date(2026,9,31),new Date(2026,10,30),new Date(2026,11,31)];
 var CAL_EVENT_COLORS={Meeting:'#2E7FD0',Milestone:'#BA7517',Deadline:'#C94E28',TWG:'#7F77DD',Other:'#5A8F1A'};
 
-// SharePoint List names
-var SP_LISTS={
-  tasks:'GSP_Tasks',
-  decisions:'GSP_Decisions',
-  risks:'GSP_Risks',
-  events:'GSP_CalendarEvents',
-  twgs:'GSP_TWGs',
-  milestones:'GSP_Milestones'
-};
+// Supabase config
+var SB_URL='https://eqkfjlhbbxwgnvwzewdx.supabase.co';
+var SB_KEY='sb_publishable_Zoxo3nH8iqymrxYDoz0wFg_SSku3-XV';
+
+async function sbRequest(method,table,body,matchCol,matchVal){
+  var url=SB_URL+'/rest/v1/'+table;
+  if(method==='GET'&&matchCol)url+='?'+matchCol+'=eq.'+encodeURIComponent(matchVal);
+  if(method==='GET'&&!matchCol)url+='?select=*&limit=5000';
+  if(method==='DELETE'&&matchCol)url+='?'+matchCol+'=eq.'+encodeURIComponent(matchVal);
+  var headers={'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Prefer':'return=representation'};
+  if(method==='PATCH'||method==='DELETE')headers['Prefer']='return=representation';
+  var opts={method:method,headers:headers};
+  if(body)opts.body=JSON.stringify(body);
+  var res=await fetch(url,opts);
+  if(!res.ok){var e=await res.text();throw new Error('Supabase '+method+' '+table+': '+res.status+' '+e.slice(0,200));}
+  if(res.status===204)return [];
+  return await res.json();
+}
+
+async function sbGetAll(table){return await sbRequest('GET',table);}
+async function sbUpsert(table,rows){
+  var url=SB_URL+'/rest/v1/'+table;
+  var headers={'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Prefer':'resolution=merge-duplicates,return=representation'};
+  var res=await fetch(url,{method:'POST',headers:headers,body:JSON.stringify(Array.isArray(rows)?rows:[rows])});
+  if(!res.ok){var e=await res.text();throw new Error('Supabase upsert '+table+': '+res.status+' '+e.slice(0,200));}
+  return await res.json();
+}
+async function sbDeleteAll(table){
+  // delete all rows by matching id >= 0 or created_at is not null
+  var url=SB_URL+'/rest/v1/'+table+'?created_at=not.is.null';
+  var headers={'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
+  await fetch(url,{method:'DELETE',headers:headers});
+  // also try id-based delete for tables with text id
+  url=SB_URL+'/rest/v1/'+table+'?id=not.is.null';
+  await fetch(url,{method:'DELETE',headers:headers});
+}
 
 function makeDefaultTasks(){
   var base=[
@@ -762,177 +788,92 @@ async function getListItems(listName){
 }
 
 // Main connect flow
-async function connectToSharePoint(){
-  var url=document.getElementById('sp-url-input').value.trim().replace(/\/$/,'');
-  if(!url){setSPStatus('error','Please enter your SharePoint site URL.');return;}
+async function connectToSupabase(){
   var btn=document.getElementById('sp-connect-btn');
   btn.disabled=true;btn.textContent='Connecting...';
-  setSPStatus('info','Connecting to SharePoint...');
-  spSiteUrl=url;
+  setSPStatus('info','Testing Supabase connection...');
   try{
-    // Test connectivity
-    setSPProgress(5,'Testing connection...');
-    var digest='';
-    try{
-      var ctx=await fetch(spSiteUrl+'/_api/contextinfo',{
-        method:'POST',
-        headers:{'Accept':'application/json;odata=nometadata','Content-Type':'application/json;odata=nometadata'},
-        credentials:'include'
-      });
-      if(!ctx.ok)throw new Error('Cannot reach SharePoint site. Check the URL and that you are logged in to Microsoft 365.');
-      var ctxData=await ctx.json();
-      digest=ctxData.FormDigestValue||'';
-    }catch(e){throw new Error('Cannot reach SharePoint site. Make sure you are logged in to Microsoft 365 in this browser and the URL is correct.\n\nError: '+e.message);}
-
-    setSPProgress(15,'Creating Lists...');
-    // Create all 6 lists if they don't exist
-    var listNames=Object.values(SP_LISTS);
-    for(var i=0;i<listNames.length;i++){
-      var exists=await listExists(listNames[i]);
-      if(!exists){
-        setSPStatus('info','Creating List: '+listNames[i]+'...');
-        await createList(listNames[i],digest);
-        await new Promise(function(r){setTimeout(r,500);});// Allow SP to register list
-      }
-      setSPProgress(15+Math.round((i/listNames.length)*25),'Setting up '+listNames[i]+'...');
-    }
-
-    // Refresh digest after list creation
-    try{var c2=await fetch(spSiteUrl+'/_api/contextinfo',{method:'POST',headers:{'Accept':'application/json;odata=nometadata','Content-Type':'application/json;odata=nometadata'},credentials:'include'});var c2d=await c2.json();digest=c2d.FormDigestValue||digest;}catch(e){}
-
-    setSPProgress(40,'Adding columns...');
-    // Add columns to GSP_Tasks
-    var taskCols=[
-      {Title:'TaskId',FieldTypeKind:2},
-      {Title:'TWG',FieldTypeKind:2},
-      {Title:'Firm',FieldTypeKind:2},
-      {Title:'DueDate',FieldTypeKind:2},
-      {Title:'GSPSection',FieldTypeKind:2},
-      {Title:'StartMonth',FieldTypeKind:9},
-      {Title:'EndMonth',FieldTypeKind:9},
-      {Title:'PctComplete',FieldTypeKind:9},
-      {Title:'Status',FieldTypeKind:2},
-      {Title:'RAG',FieldTypeKind:2},
-      {Title:'Note',FieldTypeKind:3},
-      {Title:'Dependencies',FieldTypeKind:2},
-      {Title:'UpdatedAt',FieldTypeKind:2},
-      {Title:'TaskName',FieldTypeKind:2}
-    ];
-    for(var j=0;j<taskCols.length;j++)await addColumn(SP_LISTS.tasks,taskCols[j],digest);
-
-    var decCols=[{Title:'DecisionDate',FieldTypeKind:2},{Title:'TWG',FieldTypeKind:2},{Title:'DecidedBy',FieldTypeKind:2},{Title:'Impact',FieldTypeKind:3}];
-    for(var j=0;j<decCols.length;j++)await addColumn(SP_LISTS.decisions,decCols[j],digest);
-
-    var riskCols=[{Title:'TWG',FieldTypeKind:2},{Title:'Owner',FieldTypeKind:2},{Title:'Likelihood',FieldTypeKind:2},{Title:'RiskImpact',FieldTypeKind:2},{Title:'RiskStatus',FieldTypeKind:2},{Title:'Mitigation',FieldTypeKind:3}];
-    for(var j=0;j<riskCols.length;j++)await addColumn(SP_LISTS.risks,riskCols[j],digest);
-
-    var evtCols=[{Title:'EventDate',FieldTypeKind:2},{Title:'EventType',FieldTypeKind:2},{Title:'TWG',FieldTypeKind:2},{Title:'Notes',FieldTypeKind:3},{Title:'EventId',FieldTypeKind:2}];
-    for(var j=0;j<evtCols.length;j++)await addColumn(SP_LISTS.events,evtCols[j],digest);
-
-    var twgCols=[{Title:'TWGColor',FieldTypeKind:2},{Title:'Leads',FieldTypeKind:2},{Title:'TWGId',FieldTypeKind:2}];
-    for(var j=0;j<twgCols.length;j++)await addColumn(SP_LISTS.twgs,twgCols[j],digest);
-
-    var msCols=[{Title:'MilestoneDate',FieldTypeKind:2},{Title:'MilestoneId',FieldTypeKind:2}];
-    for(var j=0;j<msCols.length;j++)await addColumn(SP_LISTS.milestones,msCols[j],digest);
-
-    setSPProgress(65,'Uploading data...');
-    await pushAllToSP(digest);
-
+    // Test connection
+    setSPProgress(10,'Testing connection...');
+    var test=await sbGetAll('gsp_tasks');
+    setSPProgress(30,'Connected! Uploading data...');
+    await pushAllToSB();
     setSPProgress(100,'Done!');
-    spConnected=true;
-    saveLocal();
-    updateSPBadge();
-    setSPStatus('success','Successfully connected! All data has been uploaded to SharePoint.<br><br>Your team can now open this HTML file, enter the same site URL, and click Connect to access shared data.');
+    spConnected=true;saveLocal();updateSPBadge();
+    setSPStatus('success','Connected to Supabase! All data uploaded. Share gspdashboard.vercel.app with your team — they will see live shared data automatically.');
     document.getElementById('sp-disconnect-btn').style.display='inline-block';
-
   }catch(err){
-    setSPStatus('error','Connection failed: '+err.message);
-    document.getElementById('sp-progress').style.display='none';
+    setSPStatus('error','Connection failed: '+err.message+'\n\nMake sure you have run the SQL setup in Supabase SQL Editor.');
   }
   btn.disabled=false;btn.textContent='Connect';
 }
 
-async function pushAllToSP(digest){
-  if(!digest){
-    try{var c=await fetch(spSiteUrl+'/_api/contextinfo',{method:'POST',headers:{'Accept':'application/json;odata=nometadata','Content-Type':'application/json;odata=nometadata'},credentials:'include'});var cd=await c.json();digest=cd.FormDigestValue||'';}catch(e){throw new Error('Could not get SharePoint digest.');}
-  }
-  // Clear and re-upload all lists
-  setSPProgress(68,'Clearing old data...');
-  await clearList(SP_LISTS.tasks,digest);
-  await clearList(SP_LISTS.decisions,digest);
-  await clearList(SP_LISTS.risks,digest);
-  await clearList(SP_LISTS.events,digest);
-  await clearList(SP_LISTS.twgs,digest);
-  await clearList(SP_LISTS.milestones,digest);
+async function pushAllToSB(){
+  setSPProgress(35,'Clearing old data...');
+  await sbDeleteAll('gsp_tasks');
+  await sbDeleteAll('gsp_decisions');
+  await sbDeleteAll('gsp_risks');
+  await sbDeleteAll('gsp_events');
+  await sbDeleteAll('gsp_twgs');
+  await sbDeleteAll('gsp_milestones');
 
-  setSPProgress(75,'Uploading tasks...');
-  for(var i=0;i<tasks.length;i++){
-    var t=tasks[i];
-    await addListItem(SP_LISTS.tasks,{
-      Title:t.id+': '+t.task.slice(0,255),
-      TaskId:t.id,TaskName:t.task.slice(0,255),TWG:t.twg,Firm:t.firm,
-      DueDate:t.due||'',GSPSection:t.gsp||'',StartMonth:t.s,EndMonth:t.e,
-      PctComplete:t.pct,Status:t.status,RAG:t.rag||'G',
-      Note:(t.note||'').slice(0,1000),
-      Dependencies:(t.deps||[]).join(','),UpdatedAt:t.updated||''
-    },digest);
-    if(i%5===0)setSPProgress(75+Math.round((i/tasks.length)*12),'Uploading tasks ('+(i+1)+'/'+tasks.length+')...');
+  setSPProgress(50,'Uploading tasks...');
+  if(tasks.length){
+    var taskRows=tasks.map(function(t){return {id:t.id,twg:t.twg,task:t.task,firm:t.firm,due:t.due||'',s:t.s,e:t.e,gsp:t.gsp||'',pct:t.pct,status:t.status,rag:t.rag||'G',note:t.note||'',deps:(t.deps||[]).join(','),updated_at:t.updated||''};});
+    // upload in batches of 20
+    for(var i=0;i<taskRows.length;i+=20){await sbUpsert('gsp_tasks',taskRows.slice(i,i+20));setSPProgress(50+Math.round((i/taskRows.length)*20),'Uploading tasks...');}
   }
 
-  setSPProgress(87,'Uploading decisions, risks, events...');
-  for(var i=0;i<decisions.length;i++){var d=decisions[i];await addListItem(SP_LISTS.decisions,{Title:(d.desc||'').slice(0,255),DecisionDate:d.date||'',TWG:d.twg||'',DecidedBy:d.who||'',Impact:(d.impact||'').slice(0,1000)},digest);}
-  for(var i=0;i<risks.length;i++){var r=risks[i];await addListItem(SP_LISTS.risks,{Title:(r.desc||'').slice(0,255),TWG:r.twg||'',Owner:r.owner||'',Likelihood:r.l||'',RiskImpact:r.i||'',RiskStatus:r.s||'Open',Mitigation:(r.mit||'').slice(0,1000)},digest);}
-  for(var i=0;i<calEvents.length;i++){var e=calEvents[i];await addListItem(SP_LISTS.events,{Title:(e.title||'').slice(0,255),EventId:e.id||uid(),EventDate:e.date||'',EventType:e.type||'Other',TWG:e.twg||'',Notes:(e.notes||'').slice(0,1000)},digest);}
+  setSPProgress(72,'Uploading decisions...');
+  if(decisions.length)await sbUpsert('gsp_decisions',decisions.map(function(d){return {decision_date:d.date||'',twg:d.twg||'',decided_by:d.who||'',description:d.desc||'',impact:d.impact||''};}));
 
-  setSPProgress(93,'Uploading TWGs and milestones...');
-  for(var i=0;i<twgs.length;i++){var tw=twgs[i];await addListItem(SP_LISTS.twgs,{Title:tw.name,TWGId:tw.id,TWGColor:tw.color||'',Leads:(tw.leads||[]).join(',')},digest);}
-  for(var i=0;i<milestones.length;i++){var m=milestones[i];await addListItem(SP_LISTS.milestones,{Title:(m.text||'').slice(0,255),MilestoneId:m.id,MilestoneDate:m.date||''},digest);}
+  setSPProgress(80,'Uploading risks...');
+  if(risks.length)await sbUpsert('gsp_risks',risks.map(function(r){return {twg:r.twg||'',owner:r.owner||'',description:r.desc||'',likelihood:r.l||'',impact:r.i||'',risk_status:r.s||'Open',mitigation:r.mit||''};}));
+
+  setSPProgress(86,'Uploading calendar events...');
+  if(calEvents.length)await sbUpsert('gsp_events',calEvents.map(function(e){return {id:e.id,title:e.title||'',event_date:e.date||'',event_type:e.type||'Other',twg:e.twg||'',notes:e.notes||''};}));
+
+  setSPProgress(92,'Uploading TWGs and milestones...');
+  if(twgs.length)await sbUpsert('gsp_twgs',twgs.map(function(tw){return {id:tw.id,name:tw.name,color:tw.color||'',leads:(tw.leads||[]).join(',')};}));
+  if(milestones.length)await sbUpsert('gsp_milestones',milestones.map(function(m){return {id:m.id,milestone_date:m.date||'',description:m.text||''};}));
 }
 
 async function pushToSharePoint(){
-  if(!spConnected||!spSiteUrl){setSyncStatus('error','Not connected to SharePoint. Connect first in Settings.');return;}
-  setSyncStatus('info','Pushing data to SharePoint...');
-  try{
-    await pushAllToSP('');
-    setSyncStatus('success','All data pushed to SharePoint successfully at '+new Date().toLocaleTimeString());
-  }catch(e){setSyncStatus('error','Push failed: '+e.message);}
+  if(!spConnected){setSyncStatus('error','Not connected to Supabase.');return;}
+  setSyncStatus('info','Pushing data to Supabase...');
+  try{await pushAllToSB();setSyncStatus('success','All data pushed at '+new Date().toLocaleTimeString());}
+  catch(e){setSyncStatus('error','Push failed: '+e.message);}
 }
 
 async function pullFromSharePoint(){
-  if(!spConnected||!spSiteUrl){setSyncStatus('error','Not connected to SharePoint.');return;}
-  setSyncStatus('info','Pulling data from SharePoint...');
+  if(!spConnected){setSyncStatus('error','Not connected to Supabase.');return;}
+  setSyncStatus('info','Pulling data from Supabase...');
   try{
-    var spTasks=await getListItems(SP_LISTS.tasks);
-    var spDecs=await getListItems(SP_LISTS.decisions);
-    var spRisks=await getListItems(SP_LISTS.risks);
-    var spEvents=await getListItems(SP_LISTS.events);
-    var spTwgs=await getListItems(SP_LISTS.twgs);
-    var spMs=await getListItems(SP_LISTS.milestones);
+    var sbTasks=await sbGetAll('gsp_tasks');
+    var sbDecs=await sbGetAll('gsp_decisions');
+    var sbRisks=await sbGetAll('gsp_risks');
+    var sbEvents=await sbGetAll('gsp_events');
+    var sbTwgs=await sbGetAll('gsp_twgs');
+    var sbMs=await sbGetAll('gsp_milestones');
 
-    // Map SP items back to local format
     var defaultT=makeDefaultTasks();
     tasks=defaultT.map(function(dt){
-      var sp=spTasks.find(function(x){return x.TaskId===dt.id;});
+      var sp=sbTasks.find(function(x){return x.id===dt.id;});
       if(!sp)return dt;
-      return Object.assign({},dt,{
-        pct:parseInt(sp.PctComplete)||0,status:sp.Status||'Not started',
-        note:sp.Note||'',rag:sp.RAG||'G',updated:sp.UpdatedAt||null,
-        deps:sp.Dependencies?sp.Dependencies.split(',').filter(function(x){return x;}):dt.deps||[]
-      });
+      return Object.assign({},dt,{pct:parseInt(sp.pct)||0,status:sp.status||'Not started',note:sp.note||'',rag:sp.rag||'G',updated:sp.updated_at||null,deps:sp.deps?sp.deps.split(',').filter(function(x){return x;}):dt.deps||[]});
     });
-    // Custom tasks
-    spTasks.filter(function(sp){return !defaultT.find(function(dt){return dt.id===sp.TaskId;});}).forEach(function(sp){
-      tasks.push({id:sp.TaskId||uid(),twg:sp.TWG||'',task:sp.TaskName||sp.Title||'',firm:sp.Firm||'lsce',due:sp.DueDate||'2026-12-31',s:parseInt(sp.StartMonth)||0,e:parseInt(sp.EndMonth)||7,gsp:sp.GSPSection||'',pct:parseInt(sp.PctComplete)||0,status:sp.Status||'Not started',note:sp.Note||'',rag:sp.RAG||'G',updated:sp.UpdatedAt||null,deps:sp.Dependencies?sp.Dependencies.split(',').filter(function(x){return x;}):[]});
+    sbTasks.filter(function(sp){return !defaultT.find(function(dt){return dt.id===sp.id;});}).forEach(function(sp){
+      tasks.push({id:sp.id,twg:sp.twg||'',task:sp.task||'',firm:sp.firm||'lsce',due:sp.due||'2026-12-31',s:parseInt(sp.s)||0,e:parseInt(sp.e)||7,gsp:sp.gsp||'',pct:parseInt(sp.pct)||0,status:sp.status||'Not started',note:sp.note||'',rag:sp.rag||'G',updated:sp.updated_at||null,deps:sp.deps?sp.deps.split(',').filter(function(x){return x;}):[]});
     });
 
-    decisions=spDecs.map(function(d){return {date:d.DecisionDate||'',twg:d.TWG||'',who:d.DecidedBy||'',desc:d.Title||'',impact:d.Impact||''};});
-    risks=spRisks.map(function(r){return {twg:r.TWG||'',owner:r.Owner||'',desc:r.Title||'',l:r.Likelihood||'',i:r.RiskImpact||'',s:r.RiskStatus||'Open',mit:r.Mitigation||''};});
-    calEvents=spEvents.map(function(e){return {id:e.EventId||uid(),title:e.Title||'',date:e.EventDate||'',type:e.EventType||'Other',twg:e.TWG||'',notes:e.Notes||''};});
-    if(spTwgs.length)twgs=spTwgs.map(function(tw){return {id:tw.TWGId||uid(),name:tw.Title||'',color:tw.TWGColor||'#2E7FD0',leads:tw.Leads?tw.Leads.split(',').filter(function(x){return x;}):[]};});
-    if(spMs.length)milestones=spMs.map(function(m){return {id:m.MilestoneId||uid(),date:m.MilestoneDate||'',text:m.Title||''};});
+    decisions=sbDecs.map(function(d){return {date:d.decision_date||'',twg:d.twg||'',who:d.decided_by||'',desc:d.description||'',impact:d.impact||''};});
+    risks=sbRisks.map(function(r){return {twg:r.twg||'',owner:r.owner||'',desc:r.description||'',l:r.likelihood||'',i:r.impact||'',s:r.risk_status||'Open',mit:r.mitigation||''};});
+    calEvents=sbEvents.map(function(e){return {id:e.id,title:e.title||'',date:e.event_date||'',type:e.event_type||'Other',twg:e.twg||'',notes:e.notes||''};});
+    if(sbTwgs.length)twgs=sbTwgs.map(function(tw){return {id:tw.id,name:tw.name||'',color:tw.color||'#2E7FD0',leads:tw.leads?tw.leads.split(',').filter(function(x){return x;}):[]};});
+    if(sbMs.length)milestones=sbMs.map(function(m){return {id:m.id,date:m.milestone_date||'',text:m.description||''};});
 
     saveLocal();render();
-    setSyncStatus('success','Data pulled from SharePoint at '+new Date().toLocaleTimeString());
+    setSyncStatus('success','Data pulled from Supabase at '+new Date().toLocaleTimeString());
   }catch(e){setSyncStatus('error','Pull failed: '+e.message);}
 }
 
