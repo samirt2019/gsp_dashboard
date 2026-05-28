@@ -842,6 +842,7 @@ async function connectToSupabase(){
     spConnected=true;saveLocal();updateSPBadge();
     setSPStatus('success','Connected to Supabase! All data uploaded. Share gspdashboard.vercel.app with your team — they will see live shared data automatically.');
     document.getElementById('sp-disconnect-btn').style.display='inline-block';
+    startAutoRefresh();
   }catch(err){
     setSPStatus('error','Connection failed: '+err.message+'\n\nMake sure you have run the SQL setup in Supabase SQL Editor.');
   }
@@ -921,6 +922,11 @@ function setSyncStatus(type,msg){
   var el=document.getElementById('sync-status');
   el.style.color=type==='error'?'var(--blocked)':type==='success'?'var(--complete)':'var(--sp)';
   el.textContent=msg;
+  // also update clock with last sync time on success
+  if(type==='success'){
+    var cl=document.getElementById('clock');
+    if(cl)cl.textContent='Synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  }
 }
 
 function disconnectSharePoint(){
@@ -939,11 +945,18 @@ function saveLocal(){
 }
 function save(){saveLocal();if(spConnected)autoSyncToSP();}
 var _syncTimer=null;
+var _autoRefreshTimer=null;
+function startAutoRefresh(){
+  if(_autoRefreshTimer)clearInterval(_autoRefreshTimer);
+  _autoRefreshTimer=setInterval(function(){
+    if(spConnected)pullFromSharePoint().catch(function(){});
+  },30000);// Pull from Supabase every 30 seconds
+}
 function autoSyncToSP(){
   clearTimeout(_syncTimer);
   _syncTimer=setTimeout(function(){
     pushToSharePoint().catch(function(){});
-  },3000);// Debounce 3s so rapid edits batch together
+  },3000);
 }
 function load(){
   try{
@@ -963,9 +976,9 @@ function load(){
     }
   }catch(e){twgs=JSON.parse(JSON.stringify(DEFAULT_TWGS_DATA));firms=JSON.parse(JSON.stringify(DEFAULT_FIRMS_DATA));milestones=JSON.parse(JSON.stringify(DEFAULT_MILESTONES_DATA));tasks=makeDefaultTasks();decisions=[];risks=[];calEvents=[];snapshots=[];}
   snap();updateSPBadge();setSaved(true);render();
-  // Auto-pull from SP on load if connected
   if(spConnected&&spSiteUrl){
     setTimeout(function(){pullFromSharePoint().catch(function(){});},1000);
+    startAutoRefresh();
   }
 }
 function snap(){var overall=tasks.length?Math.round(tasks.reduce(function(a,t){return a+t.pct;},0)/tasks.length):0;var today=new Date().toISOString().slice(0,10);if(!snapshots.length||snapshots[snapshots.length-1].date!==today){snapshots.push({date:today,pct:overall});if(snapshots.length>30)snapshots.shift();}}
