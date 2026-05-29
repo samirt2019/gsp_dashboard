@@ -881,13 +881,18 @@ async function pushAllToSB(){
 
 async function pushToSharePoint(){
   if(!spConnected){setSyncStatus('error','Not connected to Supabase.');return;}
+  if(_isSyncing)return;
+  _isSyncing=true;
   setSyncStatus('info','Pushing data to Supabase...');
   try{await pushAllToSB();setSyncStatus('success','All data pushed at '+new Date().toLocaleTimeString());}
   catch(e){setSyncStatus('error','Push failed: '+e.message);}
+  finally{_isSyncing=false;}
 }
 
 async function pullFromSharePoint(){
   if(!spConnected){setSyncStatus('error','Not connected to Supabase.');return;}
+  if(_isSyncing)return;
+  _isSyncing=true;
   setSyncStatus('info','Pulling data from Supabase...');
   try{
     var sbTasks=await sbGetAll('gsp_tasks');
@@ -916,6 +921,7 @@ async function pullFromSharePoint(){
     saveLocal();render();
     setSyncStatus('success','Data pulled from Supabase at '+new Date().toLocaleTimeString());
   }catch(e){setSyncStatus('error','Pull failed: '+e.message);}
+  finally{_isSyncing=false;}
 }
 
 function setSyncStatus(type,msg){
@@ -946,17 +952,25 @@ function saveLocal(){
 function save(){saveLocal();if(spConnected)autoSyncToSP();}
 var _syncTimer=null;
 var _autoRefreshTimer=null;
+var _lastEditTime=0;
+var _isSyncing=false;
+
 function startAutoRefresh(){
   if(_autoRefreshTimer)clearInterval(_autoRefreshTimer);
   _autoRefreshTimer=setInterval(function(){
-    if(spConnected)pullFromSharePoint().catch(function(){});
-  },30000);// Pull from Supabase every 30 seconds
+    if(!spConnected)return;
+    if(_isSyncing)return;// skip if a push/pull is already in progress
+    var secondsSinceEdit=(Date.now()-_lastEditTime)/1000;
+    if(secondsSinceEdit<15)return;// skip if user edited recently — let push finish first
+    pullFromSharePoint().catch(function(){});
+  },30000);
 }
 function autoSyncToSP(){
+  _lastEditTime=Date.now();
   clearTimeout(_syncTimer);
   _syncTimer=setTimeout(function(){
     pushToSharePoint().catch(function(){});
-  },3000);
+  },4000);// wait 4s after last edit before pushing
 }
 function load(){
   try{
