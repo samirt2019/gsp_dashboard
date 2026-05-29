@@ -1092,7 +1092,7 @@ function renderExpand(t){
     '<div class="edit-row"><span class="edit-label">% complete</span><input type="range" min="0" max="100" step="5" value="'+t.pct+'" class="pct-slider" oninput="setPct(\''+t.id+'\',this.value);document.getElementById(\'pr-'+t.id+'\').textContent=this.value+\'%\'"><span class="pct-out" id="pr-'+t.id+'">'+t.pct+'%</span></div>'+
     '<div class="edit-row"><span class="edit-label">Status</span><div class="status-btns">'+sBtns+'</div></div>'+
     '<div class="edit-row"><span class="edit-label">RAG</span><div class="rag-btns">'+rBtns+'</div></div>'+
-    '<div><textarea class="note-area" id="note-'+t.id+'" placeholder="Notes, blockers, decisions...">'+(t.note||'')+'</textarea></div>'+
+    '<div><textarea class="note-area" id="note-'+t.id+'" placeholder="Notes, blockers, decisions..." oninput="_lastEditTime=Date.now()">'+(t.note||'')+'</textarea></div>'+
     '<div class="expand-footer"><button class="del-task-btn" onclick="deleteTask(\''+t.id+'\');event.stopPropagation()">Delete</button><button class="save-btn" onclick="openEditTask(\''+t.id+'\');event.stopPropagation()">Edit details</button><button class="save-btn" onclick="saveNote(\''+t.id+'\');event.stopPropagation()">Save note</button></div>'+
     '</div>';
 }
