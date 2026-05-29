@@ -840,7 +840,10 @@ async function connectToSupabase(){
     await pushAllToSB();
     setSPProgress(100,'Done!');
     spConnected=true;saveLocal();updateSPBadge();
-    setSPStatus('success','Connected to Supabase! All data uploaded. Share gspdashboard.vercel.app with your team — they will see live shared data automatically.');
+    // Immediately pull from Supabase to sync dashboard
+    setSPStatus('info','Syncing dashboard...');
+    await pullFromSharePoint();
+    setSPStatus('success','Connected and synced! Share gspdashboard.vercel.app with your team — everyone sees live shared data.');
     document.getElementById('sp-disconnect-btn').style.display='inline-block';
     startAutoRefresh();
   }catch(err){
@@ -989,10 +992,11 @@ function load(){
       twgs=JSON.parse(JSON.stringify(DEFAULT_TWGS_DATA));firms=JSON.parse(JSON.stringify(DEFAULT_FIRMS_DATA));milestones=JSON.parse(JSON.stringify(DEFAULT_MILESTONES_DATA));tasks=makeDefaultTasks();decisions=[];risks=[];calEvents=[];snapshots=[];
     }
   }catch(e){twgs=JSON.parse(JSON.stringify(DEFAULT_TWGS_DATA));firms=JSON.parse(JSON.stringify(DEFAULT_FIRMS_DATA));milestones=JSON.parse(JSON.stringify(DEFAULT_MILESTONES_DATA));tasks=makeDefaultTasks();decisions=[];risks=[];calEvents=[];snapshots=[];}
-  snap();updateSPBadge();setSaved(true);render();
-  if(spConnected&&spSiteUrl){
-    setTimeout(function(){pullFromSharePoint().catch(function(){});},1000);
-    startAutoRefresh();
+  snap();updateSPBadge();setSaved(true);
+  if(spConnected){
+    pullFromSharePoint().catch(function(){render();}).then(function(){startAutoRefresh();});
+  }else{
+    render();
   }
 }
 function snap(){var overall=tasks.length?Math.round(tasks.reduce(function(a,t){return a+t.pct;},0)/tasks.length):0;var today=new Date().toISOString().slice(0,10);if(!snapshots.length||snapshots[snapshots.length-1].date!==today){snapshots.push({date:today,pct:overall});if(snapshots.length>30)snapshots.shift();}}
