@@ -1385,6 +1385,13 @@ function importJSON(event){
       if(d.tasks){var defaultT=makeDefaultTasks();tasks=defaultT.map(function(dt){var s=d.tasks.find(function(x){return x.id===dt.id;});if(!s)return dt;return Object.assign({},dt,{pct:s.pct||0,status:s.status||'Not started',note:s.note||'',rag:s.rag||'G',updated:s.updated||null,deps:s.deps||dt.deps||[]});});d.tasks.filter(function(t){return !defaultT.find(function(dt){return dt.id===t.id;});}).forEach(function(t){tasks.push(Object.assign({},t));});}
       if(d.decisions)decisions=d.decisions;if(d.risks)risks=d.risks;if(d.calEvents)calEvents=d.calEvents;if(d.snapshots)snapshots=d.snapshots;
       saveLocal();render();
+      // Push to Supabase if connected
+      if(spConnected){
+        setSyncStatus('info','Uploading imported data to Supabase...');
+        pushAllToSB()
+          .then(function(){setSyncStatus('success','Import synced to Supabase at '+new Date().toLocaleTimeString());})
+          .catch(function(e){setSyncStatus('error','Imported locally but Supabase sync failed: '+e.message);});
+      }
       var st=document.getElementById('import-status');if(st){st.textContent='Data imported at '+new Date().toLocaleTimeString();setTimeout(function(){st.textContent='';},4000);}
     }catch(err){var st2=document.getElementById('import-status');if(st2){st2.style.color='var(--blocked)';st2.textContent='Import failed — invalid file.';}}
   };
