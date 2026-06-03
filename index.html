@@ -921,9 +921,7 @@ async function pullFromSharePoint(){
 
 function setSyncStatus(type,msg){
   var el=document.getElementById('sync-status');
-  el.style.color=type==='error'?'var(--blocked)':type==='success'?'var(--complete)':'var(--sp)';
-  el.textContent=msg;
-  // also update clock with last sync time on success
+  if(el){el.style.color=type==='error'?'var(--blocked)':type==='success'?'var(--complete)':'var(--sp)';el.textContent=msg;}
   if(type==='success'){
     var cl=document.getElementById('clock');
     if(cl)cl.textContent='Synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
