@@ -823,23 +823,22 @@ async function getListItems(listName){
 async function connectToSupabase(){
   var btn=document.getElementById('sp-connect-btn');
   btn.disabled=true;btn.textContent='Connecting...';
-  setSPStatus('info','Testing Supabase connection...');
+  setSPStatus('info','Connecting to Supabase...');
   try{
-    // Test connection
-    setSPProgress(10,'Testing connection...');
-    var test=await sbGetAll('gsp_tasks');
-    setSPProgress(30,'Connected! Uploading data...');
-    await pushAllToSB();
-    setSPProgress(100,'Done!');
+    setSPProgress(30,'Testing connection...');
+    // Just test connectivity with a lightweight call
+    await sbGetAll('gsp_tasks');
+    setSPProgress(60,'Pulling latest data...');
     spConnected=true;saveLocal();updateSPBadge();
-    // Immediately pull from Supabase to sync dashboard
-    setSPStatus('info','Syncing dashboard...');
+    // Always pull on connect — never push
     await pullFromSharePoint();
-    setSPStatus('success','Connected and synced! Share gspdashboard.vercel.app with your team — everyone sees live shared data.');
+    setSPProgress(100,'Done!');
+    setSPStatus('success','Connected and synced! Your dashboard is now up to date.');
     document.getElementById('sp-disconnect-btn').style.display='inline-block';
     startAutoRefresh();
   }catch(err){
     setSPStatus('error','Connection failed: '+err.message+'\n\nMake sure you have run the SQL setup in Supabase SQL Editor.');
+    document.getElementById('sp-progress').style.display='none';
   }
   btn.disabled=false;btn.textContent='Connect';
 }
