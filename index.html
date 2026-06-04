@@ -596,7 +596,8 @@ function makeDefaultTasks(){
 // ── State ─────────────────────────────────────────────────────────────────────
 var tasks=[],twgs=[],firms=[],milestones=[],decisions=[],risks=[],calEvents=[],snapshots=[];
 var expandedId=null,twgFilter='all',statusFilter='all',selectedIds=new Set();
-var calYear=2026,calMonth=4,calView='month';
+var _now=new Date();
+var calYear=_now.getFullYear(),calMonth=_now.getMonth(),calView='month';
 var spSiteUrl='',spConnected=false,spToken='';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1249,7 +1250,7 @@ function renderDepMatrix(){
 }
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
-function calToday(){calYear=2026;calMonth=4;renderCalendar();}
+function calToday(){var n=new Date();calYear=n.getFullYear();calMonth=n.getMonth();renderCalendar();}
 function calNav(d){calMonth+=d;if(calMonth>11){calMonth=0;calYear++;}if(calMonth<0){calMonth=11;calYear--;}renderCalendar();}
 function setCalView(v,btn){calView=v;document.querySelectorAll('.cal-view-btn').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');renderCalendar();}
 function renderCalendar(){
